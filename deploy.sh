@@ -103,6 +103,7 @@ echo ""
 echo -e "${GREEN}Submitting Cloud Build...${NC}"
 gcloud builds submit \
   --config="$CONFIG_FILE" \
+  --region="$REGION" \
   --substitutions="_ENVIRONMENT=$ENVIRONMENT,_REGION=$REGION" \
   --project="$PROJECT_ID"
 
