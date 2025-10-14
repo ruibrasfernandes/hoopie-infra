@@ -35,5 +35,5 @@ EXPOSE 8080
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 
-# Run the application
-CMD ["uv", "run", "python", "agent_call.py"]
+# Run the application with uvicorn
+CMD ["uv", "run", "uvicorn", "agent_call:app", "--host", "0.0.0.0", "--port", "8080"]
