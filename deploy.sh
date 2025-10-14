@@ -27,6 +27,29 @@ if [[ ! "$ENVIRONMENT" =~ ^(dev|stag|prod)$ ]]; then
   exit 1
 fi
 
+# Check if current branch matches deployment environment
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+EXPECTED_BRANCH=$ENVIRONMENT
+
+# Map main branch to prod environment
+if [ "$ENVIRONMENT" = "prod" ]; then
+  EXPECTED_BRANCH="main"
+fi
+
+if [ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]; then
+  echo -e "${RED}========================================${NC}"
+  echo -e "${RED}❌ Branch Mismatch Error${NC}"
+  echo -e "${RED}========================================${NC}"
+  echo -e "Current branch:  ${YELLOW}$CURRENT_BRANCH${NC}"
+  echo -e "Expected branch: ${YELLOW}$EXPECTED_BRANCH${NC}"
+  echo -e "Target environment: ${YELLOW}$ENVIRONMENT${NC}"
+  echo ""
+  echo -e "${YELLOW}To deploy to $ENVIRONMENT, you must be on the $EXPECTED_BRANCH branch.${NC}"
+  echo -e "Run: ${GREEN}git checkout $EXPECTED_BRANCH${NC}"
+  echo -e "${RED}========================================${NC}"
+  exit 1
+fi
+
 # Map environment to project
 case $ENVIRONMENT in
   dev)
