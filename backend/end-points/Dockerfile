@@ -14,9 +14,11 @@ RUN apt-get update && apt-get install -y \
 # Add uv to PATH
 ENV PATH="/root/.local/bin:$PATH"
 
-# Copy project files and install Python dependencies
-COPY pyproject.toml .
-RUN uv sync --no-dev
+# Copy project files
+COPY pyproject.toml uv.lock ./
+
+# Install Python dependencies in system mode
+RUN uv sync --frozen --no-dev
 
 # Copy application code
 COPY . .
@@ -34,6 +36,7 @@ EXPOSE 8080
 # Set environment variables
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
+ENV PATH="/app/.venv/bin:$PATH"
 
-# Run the application with uvicorn
-CMD ["uv", "run", "uvicorn", "agent_call:app", "--host", "0.0.0.0", "--port", "8080"]
+# Run the application with uvicorn (no uv run to avoid reinstalling packages)
+CMD ["uvicorn", "agent_call:app", "--host", "0.0.0.0", "--port", "8080"]
