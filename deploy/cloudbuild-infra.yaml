@@ -1,0 +1,102 @@
+steps:
+  # Initialize Terraform
+  - name: 'hashicorp/terraform:1.6'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd deploy/terraform/environments/${_ENVIRONMENT}
+        terraform --version
+        terraform init
+
+  # Import existing secrets if they exist (to handle pre-created secrets)
+  - name: 'hashicorp/terraform:1.6'
+    entrypoint: 'sh'
+    env:
+      - 'TF_VAR_servicenow_instance_url=${_SERVICENOW_INSTANCE_URL}'
+      - 'TF_VAR_servicenow_username=${_SERVICENOW_USERNAME}'
+      - 'TF_VAR_servicenow_password=${_SERVICENOW_PASSWORD}'
+      - 'TF_VAR_mcp_bearer_token=${_MCP_BEARER_TOKEN}'
+    args:
+      - '-c'
+      - |
+        cd deploy/terraform/environments/${_ENVIRONMENT}
+        
+        # Import existing resources if they exist (ignore errors if they don't exist)
+        echo "Importing existing resources if they exist..."
+        
+        # Import service accounts
+        terraform import module.service_accounts.google_service_account.mcp_server projects/${PROJECT_ID}/serviceAccounts/hoopie-mcp-server-${_ENVIRONMENT}@${PROJECT_ID}.iam.gserviceaccount.com || echo "MCP service account not found or already imported"
+        terraform import module.service_accounts.google_service_account.cloudbuild_deployer projects/${PROJECT_ID}/serviceAccounts/hoopie-cloudbuild-${_ENVIRONMENT}@${PROJECT_ID}.iam.gserviceaccount.com || echo "Cloud Build service account not found or already imported"
+        terraform import module.service_accounts.google_service_account.adk_agent projects/${PROJECT_ID}/serviceAccounts/hoopie-adk-agent-${_ENVIRONMENT}@${PROJECT_ID}.iam.gserviceaccount.com || echo "ADK agent service account not found or already imported"
+        terraform import module.service_accounts.google_service_account.api_endpoints projects/${PROJECT_ID}/serviceAccounts/hoopie-api-endpoints-${_ENVIRONMENT}@${PROJECT_ID}.iam.gserviceaccount.com || echo "API endpoints service account not found or already imported"
+        
+        # Import artifact registry repository
+        terraform import module.artifact_registry.google_artifact_registry_repository.hoopie_repo projects/${PROJECT_ID}/locations/europe-southwest1/repositories/hoopie-${_ENVIRONMENT} || echo "Artifact registry repository not found or already imported"
+        
+        # Import secrets
+        terraform import module.service_accounts.google_secret_manager_secret.servicenow_instance_url[0] projects/${PROJECT_ID}/secrets/servicenow-instance-url-${_ENVIRONMENT} || echo "Secret not found or already imported"
+        terraform import module.service_accounts.google_secret_manager_secret.servicenow_username[0] projects/${PROJECT_ID}/secrets/servicenow-username-${_ENVIRONMENT} || echo "Secret not found or already imported"  
+        terraform import module.service_accounts.google_secret_manager_secret.servicenow_password[0] projects/${PROJECT_ID}/secrets/servicenow-password-${_ENVIRONMENT} || echo "Secret not found or already imported"
+        terraform import module.service_accounts.google_secret_manager_secret.mcp_bearer_token projects/${PROJECT_ID}/secrets/mcp-bearer-token-${_ENVIRONMENT} || echo "Secret not found or already imported"
+        
+        # Import secret versions
+        terraform import module.service_accounts.google_secret_manager_secret_version.servicenow_instance_url[0] projects/${PROJECT_ID}/secrets/servicenow-instance-url-${_ENVIRONMENT}/versions/latest || echo "Secret version not found or already imported"
+        terraform import module.service_accounts.google_secret_manager_secret_version.servicenow_username[0] projects/${PROJECT_ID}/secrets/servicenow-username-${_ENVIRONMENT}/versions/latest || echo "Secret version not found or already imported"
+        terraform import module.service_accounts.google_secret_manager_secret_version.servicenow_password[0] projects/${PROJECT_ID}/secrets/servicenow-password-${_ENVIRONMENT}/versions/latest || echo "Secret version not found or already imported"
+        terraform import module.service_accounts.google_secret_manager_secret_version.mcp_bearer_token[0] projects/${PROJECT_ID}/secrets/mcp-bearer-token-${_ENVIRONMENT}/versions/latest || echo "Secret version not found or already imported"
+
+  # Plan Terraform changes (after importing existing secrets)
+  - name: 'hashicorp/terraform:1.6'
+    entrypoint: 'sh'
+    env:
+      - 'TF_VAR_servicenow_instance_url=${_SERVICENOW_INSTANCE_URL}'
+      - 'TF_VAR_servicenow_username=${_SERVICENOW_USERNAME}'
+      - 'TF_VAR_servicenow_password=${_SERVICENOW_PASSWORD}'
+      - 'TF_VAR_mcp_bearer_token=${_MCP_BEARER_TOKEN}'
+    args:
+      - '-c'
+      - |
+        cd deploy/terraform/environments/${_ENVIRONMENT}
+        terraform plan \
+          -var="project_id=${PROJECT_ID}" \
+          -var="environment=${_ENVIRONMENT}" \
+          -var="region=${_REGION}" \
+          -out=tfplan
+
+  # Apply Terraform changes (only on main branch for prod/stag, always for dev)
+  - name: 'hashicorp/terraform:1.6'
+    entrypoint: 'sh'
+    env:
+      - 'TF_VAR_servicenow_instance_url=${_SERVICENOW_INSTANCE_URL}'
+      - 'TF_VAR_servicenow_username=${_SERVICENOW_USERNAME}'
+      - 'TF_VAR_servicenow_password=${_SERVICENOW_PASSWORD}'
+      - 'TF_VAR_mcp_bearer_token=${_MCP_BEARER_TOKEN}'
+    args:
+      - '-c'
+      - |
+        cd deploy/terraform/environments/${_ENVIRONMENT}
+        if [ "${_ENVIRONMENT}" = "dev" ] || [ "${_ENVIRONMENT}" = "stag" ] || [ "${_ENVIRONMENT}" = "prod" ] || [ "${BRANCH_NAME}" = "main" ] || [ "${BRANCH_NAME}" = "master" ]; then
+          terraform apply -auto-approve tfplan
+        else
+          echo "Skipping apply - not on main branch and not dev environment"
+        fi
+
+substitutions:
+  _ENVIRONMENT: 'dev'
+  _REGION: 'europe-southwest1'
+  _SERVICENOW_INSTANCE_URL: ''
+  _SERVICENOW_USERNAME: ''
+  _SERVICENOW_PASSWORD: ''
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET
+  # machine_type: 'E2_STANDARD_4'
+
+# Use dedicated Terraform service account with elevated permissions
+serviceAccount: 'projects/${PROJECT_ID}/serviceAccounts/terraform-deployer-${_ENVIRONMENT}@${PROJECT_ID}.iam.gserviceaccount.com'
+
+tags: ['infra', 'terraform', 'infrastructure']
+
+timeout: '1800s'

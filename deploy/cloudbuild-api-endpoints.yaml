@@ -1,0 +1,86 @@
+steps:
+  # Build the API endpoints container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/hoopie-${_ENVIRONMENT}/api-endpoints:latest'
+      - '-f'
+      - 'backend/end-points/Dockerfile'
+      - 'backend/end-points/'
+
+  # Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/hoopie-${_ENVIRONMENT}/api-endpoints'
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'api-endpoints-${_ENVIRONMENT}'
+      - '--image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/hoopie-${_ENVIRONMENT}/api-endpoints:latest'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars=GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION},ENVIRONMENT=${_ENVIRONMENT}'
+      - '--memory=512Mi'
+      - '--cpu=1'
+      - '--min-instances=0'
+      - '--max-instances=10'
+      - '--timeout=300'
+
+  # Initialize Terraform for API endpoints
+  - name: 'hashicorp/terraform:1.6'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd deploy/terraform/api-endpoints/environments/${_ENVIRONMENT}
+        terraform --version
+        terraform init
+
+  # Plan Terraform changes for API endpoints
+  - name: 'hashicorp/terraform:1.6'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd deploy/terraform/api-endpoints/environments/${_ENVIRONMENT}
+        terraform plan \
+          -var="project_id=${PROJECT_ID}" \
+          -var="environment=${_ENVIRONMENT}" \
+          -var="region=${_REGION}" \
+          -out=tfplan
+
+  # Apply Terraform changes to create/update Cloud Run service
+  - name: 'hashicorp/terraform:1.6'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd deploy/terraform/api-endpoints/environments/${_ENVIRONMENT}
+        if [ "${_ENVIRONMENT}" = "dev" ] || [ "${_ENVIRONMENT}" = "stag" ] || [ "${BRANCH_NAME}" = "main" ] || [ "${BRANCH_NAME}" = "master" ]; then
+          terraform apply -auto-approve tfplan
+        else
+          echo "Skipping apply - not on main branch and not dev environment"
+        fi
+
+substitutions:
+  _ENVIRONMENT: 'dev'
+  _REGION: 'europe-southwest1'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET
+
+# Use dedicated Cloud Build service account
+serviceAccount: 'projects/${PROJECT_ID}/serviceAccounts/hoopie-cloudbuild-${_ENVIRONMENT}@${PROJECT_ID}.iam.gserviceaccount.com'
+
+tags: ['api-endpoints', 'cloud-run', 'fastapi']
+
+timeout: '1800s'

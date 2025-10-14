@@ -1,0 +1,18 @@
+[project]
+name = "hoopie-api-endpoints"
+version = "0.1.0"
+description = "Hoopie API Endpoints"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.104.1",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.5.0",
+    "google-cloud-aiplatform>=1.38.1",
+    "google-auth>=2.25.2",
+    "google-auth-oauthlib>=1.1.0",
+    "google-auth-httplib2>=0.1.1",
+    "firebase-admin>=6.4.0",
+    "email-validator>=2.1.0",
+    "google-genai>=1.35.0",
+    "google-adk>=1.14.1",
+]

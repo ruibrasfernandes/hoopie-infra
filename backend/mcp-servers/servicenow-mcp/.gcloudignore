@@ -1,0 +1,50 @@
+# Ignore development files
+.env
+.env.*
+
+# Python cache and virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/
+.mypy_cache/
+.pytest_cache/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Documentation and examples (optional, remove if needed in container)
+docs/
+examples/
+# Keep README.md for Docker build
+# *.md
+
+# Test files
+tests/
+test_*.py
+
+# Development dependencies
+.coverage
+.tox/
+.ruff_cache/
+
+# MacOS
+.DS_Store
+
+# Lock files not needed in container
+uv.lock
+
+# Scripts directory (remove if not needed in container)
+scripts/

@@ -1,0 +1,138 @@
+steps:
+  # Install UV package manager
+  - name: 'python:3.11'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="$$HOME/.local/bin:$$HOME/.cargo/bin:$$PATH"
+        cd hoopie-adk
+        uv --version
+
+  # Install dependencies
+  - name: 'python:3.11'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        export PATH="$$HOME/.local/bin:$$HOME/.cargo/bin:$$PATH"
+        cd hoopie-adk
+        uv sync
+
+  # Set up authentication and environment variables
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Install Python and UV
+        apt-get update && apt-get install -y python3 python3-pip
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="$$HOME/.local/bin:$$PATH"
+        
+        cd hoopie-adk
+        
+        # Set up service account authentication
+        echo "Retrieving service account key from Secret Manager..."
+        echo "DEBUG: Environment: ${_ENVIRONMENT}"
+        echo "DEBUG: Project ID: ${PROJECT_ID}"
+        echo "DEBUG: Secret name: adk-agent-key-${_ENVIRONMENT}"
+        echo "DEBUG: Attempting to access secret..."
+        
+        if gcloud secrets versions access latest --secret="adk-agent-key-${_ENVIRONMENT}" --project=${PROJECT_ID} > /tmp/adk-agent-key.json 2>/tmp/secret_error.log; then
+          if [ -s "/tmp/adk-agent-key.json" ] && python3 -m json.tool /tmp/adk-agent-key.json > /dev/null 2>&1; then
+            export GOOGLE_APPLICATION_CREDENTIALS=/tmp/adk-agent-key.json
+            echo "Service account key loaded successfully"
+          else
+            echo "ERROR: Invalid or empty service account key JSON file"
+            exit 1
+          fi
+        else
+          echo "ERROR: Failed to retrieve service account key from Secret Manager"
+          echo "Make sure the secret 'adk-agent-key-${_ENVIRONMENT}' exists and contains a valid service account key"
+          echo "DEBUG: Error details:"
+          cat /tmp/secret_error.log
+          echo "DEBUG: Current gcloud config:"
+          gcloud config list
+          echo "DEBUG: Testing secret access manually:"
+          gcloud secrets list --filter="name:adk-agent-key-${_ENVIRONMENT}" --project=${PROJECT_ID}
+          exit 1
+        fi
+        
+        # Set agent-specific environment variables
+        export GOOGLE_GENAI_USE_VERTEXAI=TRUE
+        export GOOGLE_CLOUD_PROJECT=${PROJECT_ID}
+        export GOOGLE_CLOUD_LOCATION=${_REGION}
+        export STAGING_BUCKET=${_STAGING_BUCKET}
+        export ENVIRONMENT=${_ENVIRONMENT}
+        # Create capitalized environment name for app name
+        ENV_CAP=$$(echo "${_ENVIRONMENT}" | awk '{print toupper(substr($$0,1,1)) tolower(substr($$0,2))}')
+        export APP_NAME="Hoopie SDM Agent $$ENV_CAP"
+        
+        # ServiceNow MCP Server Configuration
+        export SERVICENOW_MCP_URL="${_SERVICENOW_MCP_URL}"
+        
+        # Create environment file using only Secret Manager - no .env file dependencies
+        echo "Creating environment file using Secret Manager..."
+        echo "# Agent Configuration (from Cloud Build substitutions)" > .env
+        echo "GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" >> .env
+        echo "GOOGLE_GENAI_USE_VERTEXAI=TRUE" >> .env
+        echo "GOOGLE_CLOUD_LOCATION=${_REGION}" >> .env
+        echo "STAGING_BUCKET=${_STAGING_BUCKET}" >> .env
+        echo "ENVIRONMENT=${_ENVIRONMENT}" >> .env
+        echo "APP_NAME=Hoopie SDM Agent $$ENV_CAP" >> .env
+        echo "" >> .env
+        echo "# ServiceNow MCP URL (from Cloud Run service)" >> .env
+        echo "SERVICENOW_MCP_URL=${_SERVICENOW_MCP_URL}" >> .env
+        echo "" >> .env
+        echo "# MCP Bearer Token (from Secret Manager)" >> .env
+        
+        # Add MCP Bearer Token from Secret Manager
+        echo "Retrieving MCP Bearer Token from Secret Manager..."
+        MCP_BEARER_TOKEN=$$(gcloud secrets versions access latest --secret="mcp-bearer-token-${_ENVIRONMENT}" --project=${PROJECT_ID})
+        if [ -z "$$MCP_BEARER_TOKEN" ]; then
+          echo "ERROR: Failed to retrieve MCP Bearer Token from Secret Manager"
+          exit 1
+        fi
+        echo "MCP_BEARER_TOKEN=$$MCP_BEARER_TOKEN" >> .env
+        echo "✅ Environment file created using Secret Manager only (no .env file dependencies)"
+        
+        # Install dependencies and package in development mode
+        uv sync
+        uv pip install -e .
+        
+        # Deploy the ADK agent with proper error handling
+        echo "Starting ADK agent deployment..."
+        if uv run adk deploy agent_engine \
+          --project=${PROJECT_ID} \
+          --region=${_REGION} \
+          --staging_bucket=${_STAGING_BUCKET} \
+          --display_name="Hoopie SDM Agent" \
+          --description="Service Delivery Manager agent for ${_ENVIRONMENT} environment" \
+          --requirements_file=requirements.txt \
+          --adk_app=hoopie_sdm.agent \
+          --env_file=.env \
+          hoopie_sdm ; then
+          echo "ADK agent deployment completed successfully"
+        else
+          echo "ERROR: ADK agent deployment failed"
+          exit 1
+        fi
+
+substitutions:
+  _ENVIRONMENT: 'dev'
+  _REGION: 'europe-southwest1'
+  _STAGING_BUCKET: ''
+  _SERVICENOW_MCP_URL: ''
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET
+
+# Use dedicated Cloud Build service account
+serviceAccount: 'projects/${PROJECT_ID}/serviceAccounts/hoopie-cloudbuild-${_ENVIRONMENT}@${PROJECT_ID}.iam.gserviceaccount.com'
+
+tags: ['hoopie-sdm', 'adk-agent', 'vertex-ai']
+
+timeout: '1800s'

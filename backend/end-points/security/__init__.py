@@ -1,0 +1,1 @@
+# Firebase Security Module for Hoopie

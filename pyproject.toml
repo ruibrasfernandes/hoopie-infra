@@ -1,0 +1,13 @@
+[project]
+name = "hoopie-infra"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.119.0",
+    "firebase-admin>=6.9.0",
+    "google-adk[a2a]>=1.16.0",
+    "google-cloud-aiplatform[agent-engines]>=1.71.1",
+    "pydantic>=2.12.1",
+]

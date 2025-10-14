@@ -1,0 +1,60 @@
+substitutions:
+  _ENVIRONMENT: 'dev'
+  _GOOGLE_CLOUD_PROJECT: 'default-project'
+  _GOOGLE_CLOUD_LOCATION: 'europe-southwest1'
+
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_GOOGLE_CLOUD_LOCATION}-docker.pkg.dev/${_GOOGLE_CLOUD_PROJECT}/hoopie-agents/servicenow-mcp-${_ENVIRONMENT}:$BUILD_ID'
+      - '-t'
+      - '${_GOOGLE_CLOUD_LOCATION}-docker.pkg.dev/${_GOOGLE_CLOUD_PROJECT}/hoopie-agents/servicenow-mcp-${_ENVIRONMENT}:latest'
+      - '.'
+
+  # Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_GOOGLE_CLOUD_LOCATION}-docker.pkg.dev/${_GOOGLE_CLOUD_PROJECT}/hoopie-agents/servicenow-mcp-${_ENVIRONMENT}:$BUILD_ID'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_GOOGLE_CLOUD_LOCATION}-docker.pkg.dev/${_GOOGLE_CLOUD_PROJECT}/hoopie-agents/servicenow-mcp-${_ENVIRONMENT}:latest'
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'servicenow-mcp-${_ENVIRONMENT}'
+      - '--image'
+      - '${_GOOGLE_CLOUD_LOCATION}-docker.pkg.dev/${_GOOGLE_CLOUD_PROJECT}/hoopie-agents/servicenow-mcp-${_ENVIRONMENT}:$BUILD_ID'
+      - '--region'
+      - '${_GOOGLE_CLOUD_LOCATION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '8080'
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '1'
+      - '--max-instances'
+      - '10'
+      - '--timeout'
+      - '900'
+      - '--set-env-vars'
+      - 'MCP_TOOL_PACKAGE=full,ENVIRONMENT=${_ENVIRONMENT}'
+      - '--update-secrets'
+      - 'SERVICENOW_INSTANCE_URL=servicenow-instance-url-${_ENVIRONMENT}:latest,SERVICENOW_USERNAME=servicenow-username-${_ENVIRONMENT}:latest,SERVICENOW_PASSWORD=servicenow-password-${_ENVIRONMENT}:latest,MCP_BEARER_TOKEN=mcp-bearer-token-${_ENVIRONMENT}:latest'
+
+# Secrets are now managed directly via --update-secrets flag
+
+options:
+  logging: CLOUD_LOGGING_ONLY
