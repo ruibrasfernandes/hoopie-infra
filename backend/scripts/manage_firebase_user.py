@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import firebase_admin
-from firebase_admin import credentials, auth
+from firebase_admin import credentials, auth, firestore
 import os
 import re
 import getpass
@@ -50,6 +50,46 @@ def get_custom_claims():
     if nickname:
         custom_claims["nickname"] = nickname
     return custom_claims
+
+def create_firestore_user_document(uid, custom_claims):
+    """
+    Creates or updates a Firestore document in the 'users' collection in the Default database.
+    Document ID is the Firebase UID, containing user information from Firebase Auth.
+    """
+    try:
+        # Get user details from Firebase Auth
+        user = auth.get_user(uid)
+
+        # Initialize Firestore client for the Default database
+        db = firestore.client()
+
+        # Convert creation timestamp to datetime (milliseconds to seconds)
+        from datetime import datetime
+        creation_date = datetime.fromtimestamp(user.user_metadata.creation_timestamp / 1000)
+
+        # Build user document with required fields
+        user_data = {
+            "email": user.email,
+            "display_name": user.display_name or "",
+            "phone_number": user.phone_number or "",
+            "photo_url": "",
+            "creation_date": creation_date,
+            "language": "PT"
+        }
+
+        # Merge with custom_claims if provided
+        if custom_claims:
+            user_data.update(custom_claims)
+
+        db.collection("users").document(uid).set(user_data, merge=True)
+        print(f"✅ Firestore user document created/updated for UID: {uid}")
+        print(f"   Email: {user_data['email']}")
+        print(f"   Display Name: {user_data['display_name']}")
+        print(f"   Phone Number: {user_data['phone_number']}")
+        print(f"   Creation Date: {user_data['creation_date']}")
+        print(f"   Language: {user_data['language']}")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not create Firestore document: {e}")
 
 def validate_and_format_phone(phone):
     """
@@ -114,6 +154,9 @@ def main():
                 if update_params:
                     auth.update_user(user.uid, **update_params)
                     print("User properties updated.")
+
+                # Create/update Firestore user document
+                create_firestore_user_document(user.uid, custom_claims)
         except auth.UserNotFoundError:
             user_attrs = {
                 "email": email,
@@ -133,13 +176,16 @@ def main():
             try:
                 new_user = auth.create_user(**user_attrs)
                 print(f"✅ User created with UID: {new_user.uid}")
-                
+
                 # Set custom claims
                 auth.set_custom_user_claims(new_user.uid, custom_claims)
                 print(f"✅ Custom claims set: {custom_claims}")
-                
+
+                # Create Firestore user document
+                create_firestore_user_document(new_user.uid, custom_claims)
+
                 print(f"🎉 User with email {email} created successfully!")
-                
+
             except Exception as create_error:
                 print(f"❌ Error creating user: {create_error}")
                 print(f"   User attributes attempted: {user_attrs}")
@@ -164,6 +210,9 @@ def main():
             if enforce.lower() == "yes":
                 auth.set_custom_user_claims(user.uid, custom_claims)
                 print("Custom claims updated successfully.")
+
+                # Create/update Firestore user document
+                create_firestore_user_document(user.uid, custom_claims)
         except auth.UserNotFoundError:
             print(f"User with email {email} not found. Please ensure the user has already signed in with Google in your application.")
         except Exception as e:
