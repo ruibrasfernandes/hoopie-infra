@@ -5,6 +5,15 @@ import os
 import re
 import getpass
 
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
+GOOGLE_CLOUD_PROJECT=os.environ.get("GOOGLE_CLOUD_PROJECT")
+print(f"GOOGLE_CLOUD_PROJECT={GOOGLE_CLOUD_PROJECT}")
+
+
+
 def initialize_firebase():
     """
     Initializes the Firebase Admin SDK.

@@ -4,9 +4,19 @@ from firebase_admin import credentials, auth, firestore
 import os
 import sys
 import json
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
+GOOGLE_CLOUD_PROJECT=os.environ.get("GOOGLE_CLOUD_PROJECT")
+print(f"GOOGLE_CLOUD_PROJECT={GOOGLE_CLOUD_PROJECT}")
+
+
 
 def initialize_firebase():
     """Initialize Firebase Admin SDK."""
+
+    
     if not firebase_admin._apps:
         project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
         if not project_id:
