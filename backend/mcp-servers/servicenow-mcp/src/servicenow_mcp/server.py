@@ -24,6 +24,58 @@ from servicenow_mcp.tools.knowledge_base import (
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
 
+
+def transform_schema_for_vertex_ai(schema: dict) -> dict:
+    """
+    Transform a Pydantic JSON schema to be compatible with Vertex AI.
+
+    Vertex AI doesn't support 'anyOf' alongside other schema fields.
+    This function removes 'anyOf' patterns for nullable fields, replacing them
+    with just the non-null type while preserving other schema properties (including enum).
+
+    Args:
+        schema: The schema dictionary to transform
+
+    Returns:
+        The transformed schema dictionary
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    # Create a new dict to avoid modifying the original
+    result = {}
+
+    # Check if this schema has anyOf pattern for nullable types
+    has_any_of = "anyOf" in schema
+    any_of_value = schema.get("anyOf", [])
+
+    if has_any_of and isinstance(any_of_value, list) and len(any_of_value) == 2:
+        # Extract the types from anyOf
+        type_schemas = [v for v in any_of_value if isinstance(v, dict) and "type" in v]
+        if len(type_schemas) == 2:
+            types = [v["type"] for v in type_schemas]
+            if "null" in types:
+                # Get the non-null type schema and merge its properties
+                non_null_schema = [v for v in type_schemas if v["type"] != "null"][0]
+                # Copy all properties from the non-null schema (e.g., type, enum)
+                for k, v in non_null_schema.items():
+                    result[k] = v
+
+    for key, value in schema.items():
+        if key == "anyOf":
+            # Skip anyOf as we've already handled it above
+            continue
+        elif isinstance(value, dict):
+            # Recursively transform nested dicts
+            result[key] = transform_schema_for_vertex_ai(value)
+        elif isinstance(value, list):
+            # Recursively transform items in lists
+            result[key] = [transform_schema_for_vertex_ai(item) if isinstance(item, dict) else item for item in value]
+        else:
+            result[key] = value
+
+    return result
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -198,6 +250,8 @@ class ServiceNowMCP:
                 )
                 try:
                     schema = params_model.model_json_schema()
+                    # Transform schema to be compatible with Vertex AI
+                    schema = transform_schema_for_vertex_ai(schema)
                     tool_list.append(
                         types.Tool(name=tool_name, description=description, inputSchema=schema)
                     )
